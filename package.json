@@ -1,5 +1,5 @@
 {
-	"name": "@altir/tone",
+	"name": "@azgaar/tone",
 	"version": "14.8.0",
 	"description": "A Web Audio framework for making interactive music in the browser.",
 	"browser": "build/Tone.js",
