@@ -1,5 +1,5 @@
 {
-	"name": "tone",
+	"name": "@altir/tone",
 	"version": "14.8.0",
 	"description": "A Web Audio framework for making interactive music in the browser.",
 	"browser": "build/Tone.js",
@@ -16,7 +16,7 @@
 		"Tone"
 	],
 	"scripts": {
-		"build": "npm run increment && rm -rf build && npm run ts:build && npm run webpack:build",
+		"build": "npm run increment && del build && npm run ts:build && npm run webpack:build",
 		"codecov": "codecov",
 		"docs": "node scripts/generate_docs.cjs",
 		"docs:json": "cross-var typedoc --options \"./scripts/typedoc.json\" --json \"$npm_config_docs_json\"",
