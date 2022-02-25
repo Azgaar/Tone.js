@@ -414,6 +414,9 @@ export class ToneAudioBuffer extends Tone {
 			href = anchorElement.href;
 		}
 
+		// eslint-disable-next-line no-console
+		console.log("load", url, href);
+
 		const response = await fetch(href);
 		if (!response.ok) {
 			throw new Error(`could not load url: ${url}`);
