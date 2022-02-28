@@ -63,7 +63,7 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 	/**
 	 * The stored and loaded buffers
 	 */
-	private _buffers: ToneAudioBuffers;
+	private _elements: ToneAudioBuffers;
 
 	/**
 	 * The object of all currently playing BufferSources
