@@ -1,7 +1,6 @@
-import { ToneAudioBuffer } from "../core/context/ToneAudioBuffer";
-import { ToneAudioBuffers } from "../core/context/ToneAudioBuffers";
 import { ftomf, intervalToFrequencyRatio } from "../core/type/Conversions";
 import { FrequencyClass } from "../core/type/Frequency";
+import { ToneMediaElements } from "../core/context/ToneMediaElements";
 import {
 	Frequency,
 	Interval,
@@ -14,10 +13,7 @@ import { optionsFromArguments } from "../core/util/Defaults";
 import { noOp } from "../core/util/Interface";
 import { isArray, isNote, isNumber } from "../core/util/TypeCheck";
 import { Instrument, InstrumentOptions } from "../instrument/Instrument";
-import {
-	ToneBufferSource,
-	ToneBufferSourceCurve,
-} from "../source/buffer/ToneBufferSource";
+import { ToneMediaElementSource } from "../source/mediaElement/ToneMediaElementSource";
 import { timeRange } from "../core/util/Decorator";
 import { assert } from "../core/util/Debug";
 
@@ -32,7 +28,6 @@ export interface MediaElementSamplerOptions extends InstrumentOptions {
 	onload: () => void;
 	onerror: (error: Error) => void;
 	baseUrl: string;
-	curve: ToneBufferSourceCurve;
 	urls: SamplesMap;
 }
 
@@ -61,14 +56,14 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 	readonly name: string = "MediaElementSampler";
 
 	/**
-	 * The stored and loaded buffers
+	 * The stored MediaElements
 	 */
-	private _elements: ToneAudioBuffers;
+	private _elements: ToneMediaElements;
 
 	/**
-	 * The object of all currently playing BufferSources
+	 * The object of all currently playing ToneMediaElements
 	 */
-	private _activeSources: Map<MidiNote, ToneBufferSource[]> = new Map();
+	private _activeSources: Map<MidiNote, ToneMediaElementSource[]> = new Map();
 
 	/**
 	 * The envelope applied to the beginning of the sample.
@@ -85,12 +80,6 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 	 */
 	@timeRange(0)
 	release: Time;
-
-	/**
-	 * The shape of the attack/release curve.
-	 * Either "linear" or "exponential"
-	 */
-	curve: ToneBufferSourceCurve;
 
 	/**
 	 * @param samples An object of samples mapping either Midi Note Numbers or
@@ -142,28 +131,23 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 			}
 		});
 
-		this._buffers = new ToneAudioBuffers({
+		this._elements = new ToneMediaElements({
 			urls: urlMap,
 			onload: options.onload,
 			baseUrl: options.baseUrl,
 			onerror: options.onerror,
 		});
+
 		this.attack = options.attack;
 		this.release = options.release;
-		this.curve = options.curve;
 
-		// invoke the callback if it's already loaded
-		if (this._buffers.loaded) {
-			// invoke onload deferred
-			Promise.resolve().then(options.onload);
-		}
+		options.onload();
 	}
 
 	static getDefaults(): MediaElementSamplerOptions {
 		return Object.assign(Instrument.getDefaults(), {
 			attack: 0,
 			baseUrl: "",
-			curve: "exponential" as const,
 			onload: noOp,
 			onerror: noOp,
 			release: 0.1,
@@ -180,9 +164,9 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 		let interval = 0;
 		while (interval < MAX_INTERVAL) {
 			// check above and below
-			if (this._buffers.has(midi + interval)) {
+			if (this._elements.has(midi + interval)) {
 				return -interval;
-			} else if (this._buffers.has(midi - interval)) {
+			} else if (this._elements.has(midi - interval)) {
 				return interval;
 			}
 			interval++;
@@ -213,32 +197,35 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 			// find the closest note pitch
 			const difference = this._findClosest(midi);
 			const closestNote = midi - difference;
-			const buffer = this._buffers.get(closestNote);
+			const element = this._elements.get(closestNote);
 			const playbackRate = intervalToFrequencyRatio(
 				difference + remainder
 			);
+
 			// play that note
-			const source = new ToneBufferSource({
-				url: buffer,
+			const source = new ToneMediaElementSource({
+				element,
 				context: this.context,
-				curve: this.curve,
 				fadeIn: this.attack,
 				fadeOut: this.release,
 				playbackRate,
 			}).connect(this.output);
-			source.start(time, 0, buffer.duration / playbackRate, velocity);
+
+			source.start(time, 0, source.duration / playbackRate, velocity);
+
 			// add it to the active sources
 			if (!isArray(this._activeSources.get(midi))) {
 				this._activeSources.set(midi, []);
 			}
-			(this._activeSources.get(midi) as ToneBufferSource[]).push(source);
+
+			this._activeSources.get(midi)?.push(source);
 
 			// remove it when it's done
 			source.onended = () => {
 				if (this._activeSources && this._activeSources.has(midi)) {
 					const sources = this._activeSources.get(
 						midi
-					) as ToneBufferSource[];
+					) as ToneMediaElementSource[];
 					const index = sources.indexOf(source);
 					if (index !== -1) {
 						sources.splice(index, 1);
@@ -263,11 +250,12 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 			// find the note
 			if (
 				this._activeSources.has(midi) &&
-				(this._activeSources.get(midi) as ToneBufferSource[]).length
+				(this._activeSources.get(midi) as ToneMediaElementSource[])
+					.length
 			) {
 				const sources = this._activeSources.get(
 					midi
-				) as ToneBufferSource[];
+				) as ToneMediaElementSource[];
 				time = this.toSeconds(time);
 				sources.forEach((source) => {
 					source.stop(time);
@@ -286,7 +274,7 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 		const computedTime = this.toSeconds(time);
 		this._activeSources.forEach((sources) => {
 			while (sources.length) {
-				const source = sources.shift() as ToneBufferSource;
+				const source = sources.shift() as ToneMediaElementSource;
 				source.stop(computedTime);
 			}
 		});
@@ -337,11 +325,7 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 	 * @param  url  Either the url of the buffer, or a buffer which will be added with the given name.
 	 * @param  callback  The callback to invoke when the url is loaded.
 	 */
-	add(
-		note: Note | MidiNote,
-		url: string | ToneAudioBuffer | AudioBuffer,
-		callback?: () => void
-	): this {
+	add(note: Note | MidiNote, url: string, callback?: () => void): this {
 		assert(
 			isNote(note) || isFinite(note),
 			`note must be a pitch or midi: ${note}`
@@ -349,19 +333,12 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 		if (isNote(note)) {
 			// convert the note name to MIDI
 			const mid = new FrequencyClass(this.context, note).toMidi();
-			this._buffers.add(mid, url, callback);
+			this._elements.add(mid, url, callback);
 		} else {
 			// otherwise if it's numbers assume it's midi
-			this._buffers.add(note, url, callback);
+			this._elements.add(note, url, callback);
 		}
 		return this;
-	}
-
-	/**
-	 * If the buffers are loaded or not
-	 */
-	get loaded(): boolean {
-		return this._buffers.loaded;
 	}
 
 	/**
@@ -369,7 +346,7 @@ export class MediaElementSampler extends Instrument<MediaElementSamplerOptions> 
 	 */
 	dispose(): this {
 		super.dispose();
-		this._buffers.dispose();
+		this._elements.dispose();
 		this._activeSources.forEach((sources) => {
 			sources.forEach((source) => source.dispose());
 		});

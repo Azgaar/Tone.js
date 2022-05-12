@@ -1,6 +1,4 @@
-import { getContext } from "../Global";
 import { Tone } from "../Tone";
-import { Samples, Seconds } from "../type/Units";
 import { optionsFromArguments } from "../util/Defaults";
 import { noOp } from "../util/Interface";
 
@@ -24,7 +22,7 @@ export class ToneMediaElement extends Tone {
 	/**
 	 * stores the loaded MediaElement
 	 */
-	private _element?: MediaElementAudioSourceNode;
+	private _element?: HTMLAudioElement;
 
 	/**
 	 * Callback when the element is loaded
@@ -55,7 +53,14 @@ export class ToneMediaElement extends Tone {
 
 		if (options.url) {
 			// initiate the download
-			this.load(options.url).catch(options.onerror);
+			const element = ToneMediaElement.load(options.url);
+
+			if (!element) {
+				options.onerror(new Error("Cannot create ToneMediaElement"));
+				return;
+			}
+
+			this._element = element;
 		}
 	}
 
@@ -67,30 +72,9 @@ export class ToneMediaElement extends Tone {
 	}
 
 	/**
-	 * Pass in an AudioBuffer or ToneAudioBuffer to set the value of this buffer.
-	 */
-	set(buffer: AudioBuffer | ToneMediaElement): this {
-		if (buffer instanceof ToneMediaElement) {
-			// if it's loaded, set it
-			if (buffer.loaded) {
-				this._element = buffer.get();
-			} else {
-				// otherwise when it's loaded, invoke it's callback
-				buffer.onload = () => {
-					this.set(buffer);
-					this.onload(this);
-				};
-			}
-		} else {
-			this._element = buffer;
-		}
-		return this;
-	}
-
-	/**
 	 * The media element stored in the object.
 	 */
-	get(): MediaElementAudioSourceNode | undefined {
+	get(): HTMLAudioElement | undefined {
 		return this._element;
 	}
 
@@ -103,59 +87,6 @@ export class ToneMediaElement extends Tone {
 		return this;
 	}
 
-	/**
-	 * If the buffer is loaded or not
-	 */
-	get loaded(): boolean {
-		return this.length > 0;
-	}
-
-	/**
-	 * The duration of the buffer in seconds.
-	 */
-	get duration(): Seconds {
-		if (this._buffer) {
-			return this._buffer.duration;
-		} else {
-			return 0;
-		}
-	}
-
-	/**
-	 * The length of the buffer in samples
-	 */
-	get length(): Samples {
-		if (this._buffer) {
-			return this._buffer.length;
-		} else {
-			return 0;
-		}
-	}
-
-	/**
-	 * The number of discrete audio channels. Returns 0 if no buffer is loaded.
-	 */
-	get numberOfChannels(): number {
-		if (this._buffer) {
-			return this._buffer.numberOfChannels;
-		} else {
-			return 0;
-		}
-	}
-
-	/**
-	 * Reverse the buffer.
-	 */
-	get reverse(): boolean {
-		return this._reversed;
-	}
-	set reverse(rev: boolean) {
-		if (this._reversed !== rev) {
-			this._reversed = rev;
-			this._reverse();
-		}
-	}
-
 	//-------------------------------------
 	// STATIC METHODS
 	//-------------------------------------
@@ -166,19 +97,9 @@ export class ToneMediaElement extends Tone {
 	static baseUrl = "";
 
 	/**
-	 * Create a ToneAudioBuffer from the array. To create a multichannel AudioBuffer,
-	 * pass in a multidimensional array.
-	 * @param array The array to fill the audio buffer
-	 * @return A ToneAudioBuffer created from the array
+	 * Creates HTMLAudioElement for provided url.
 	 */
-	static fromArray(array: Float32Array | Float32Array[]): ToneMediaElement {
-		return new ToneMediaElement().fromArray(array);
-	}
-
-	/**
-	 * Loads a url using fetch and returns the AudioBuffer.
-	 */
-	static async load(url: string): Promise<AudioBuffer> {
+	static load(url: string): HTMLAudioElement {
 		// test if the url contains multiple extensions
 		const matches = url.match(/\[([^\]\[]+\|.+)\]$/);
 		if (matches) {
@@ -221,15 +142,14 @@ export class ToneMediaElement extends Tone {
 			href = anchorElement.href;
 		}
 
-		const response = await fetch(href);
-		if (!response.ok) {
-			throw new Error(`could not load url: ${url}`);
+		const element = new Audio(href);
+		if (!element) {
+			throw new Error(
+				`could not create HTMLAudioElement for source: ${url}`
+			);
 		}
-		const arrayBuffer = await response.arrayBuffer();
 
-		const audioBuffer = await getContext().decodeAudioData(arrayBuffer);
-
-		return audioBuffer;
+		return element;
 	}
 
 	/**
@@ -248,16 +168,5 @@ export class ToneMediaElement extends Tone {
 			.createElement("audio")
 			.canPlayType("audio/" + extension);
 		return response !== "";
-	}
-
-	/**
-	 * Returns a Promise which resolves when all of the buffers have loaded
-	 */
-	static async loaded(): Promise<void> {
-		// this makes sure that the function is always async
-		await Promise.resolve();
-		while (ToneMediaElement.downloads.length) {
-			await ToneMediaElement.downloads[0];
-		}
 	}
 }
